@@ -8,6 +8,9 @@ date: "`r Sys.Date()`"
 knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
+library(haven)
+
+# df_cand <- read_dta('repl/candidate.dta')
 ```
 
 ## Load Data
@@ -16,48 +19,74 @@ library(tidyverse)
 disagree_vals <- c("Somwhat Disagree", "Strongly disagree", 
                                                         "Neither agree nor disagree")
 agree_vals <- c("Somwhat agree", "Strongly agree")
+petitionA <- c("Q12", "Q39", "Q53")
+petitionB <- c("Q15", "Q41", "Q59")
+petitionC <- c("Q25", "Q45", "Q55")
+petitionD <- c("Q24", "Q47", "Q61")
+  
+# var_exprs <- rlang::parse_exprs(paste0("P1a == ", yrs, " ~ ", yrs))
+# vars_exprs
+
 df <- read_csv('CMC+Change.org_April+22,+2025_13.30.csv', skip=0) %>% 
   filter(`StartDate` != '{"ImportId":"startDate","timeZone":"America/Denver"}' &
            `StartDate` != "Start Date") %>% 
   mutate(across(c("RecordedDate", "StartDate", "EndDate"), ~ymd_hms(.))) %>% 
-  filter(Status == "IP Address") %>% 
+  filter(Status == "IP Address")  %>% 
+  mutate(pair_order = coalesce(FL_26_DO, FL_27_DO, FL_28_DO)) %>% 
+  #distinct(FL_22_DO, FL_26_DO, FL_27_DO, FL_28_DO, pair_order) %>%
+  separate(pair_order, c("first_pair", "second_pair"), sep="\\|") %>% 
+  mutate(pair1_order = coalesce(`PetitionPair1-AB_DO`, `PetitionPair2-AC_DO`, `PetitionPair3-A/D_DO`),
+         pair2_order = coalesce(`PetitionPair1-CD_DO`, `PetitionPair2-BD_DO`, `PetitionPair3-B/C_DO`)) %>% 
+  separate(pair1_order, c("P1", "P1a", "P1b", "P2", "P2a", "P2b", "selection1"), sep="\\|") %>%
+  separate(pair2_order, c("P3", "P3a", "P3b", "P4", "P4a", "P4b", "selection2"), sep="\\|") %>% 
   mutate(pass_attention = case_when(str_detect(Q5, "AI-generated drafting") &
                                       FL_3_DO == 'AI-Primed' ~ 1,
                                     !str_detect(Q8, "AI-generated drafting") &
                                       FL_3_DO == 'Control' ~ 1,
-                                    TRUE ~ 0),
-         subject_matter_expertA = case_when((Q60_1 %in% agree_vals & 
-                                              str_sub(df$`PetitionPair1-AB_DO`, 1,3) == "Q12") |
-                                              (Q70_1 %in% agree_vals & 
-                                              str_sub(df$`PetitionPair2-AC_DO`, 1,3) == "Q39") ~ 1, 
-                                           (Q60_1 %in% disagree_vals & 
-                                              str_sub(df$`PetitionPair1-AB_DO`, 1,3) == "Q12") |
-                                              (Q70_1 %in% disagree_vals & 
-                                              str_sub(df$`PetitionPair2-AC_DO`, 1,3) == "Q39") ~ 0,
-                                           TRUE ~ NA),
-         motivate_furtherA = case_when((Q60_2 %in% c("Somwhat agree", "Strongly agree") & 
-                                              str_sub(df$`PetitionPair1-AB_DO`, 1,3) == "Q12") |
-                                              (Q70_2 %in% agree_vals & 
-                                              str_sub(df$`PetitionPair2-AC_DO`, 1,3) == "Q39") ~ 1, 
-                                           (Q60_2 %in% disagree_vals & 
-                                              str_sub(df$`PetitionPair1-AB_DO`, 1,3) == "Q12") | 
-                                         (Q70_2 %in% disagree_vals & 
-                                              str_sub(df$`PetitionPair2-AC_DO`, 1,3) == "Q39") ~ 0,
-                                           TRUE ~ NA),
-         pairs = case_when(FL_22_DO == 'FL_27' ~ 'AC,BD',
-                                FL_22_DO == 'FL_26' ~ 'AB,CD',
-                                FL_22_DO == 'FL_28' ~ 'AD,BC'))
+                                    TRUE ~ 0)) %>% 
+  mutate(preference1 = case_when(selection1 == "Q43" ~ Q43,
+                                 selection1 == "Q57" ~ Q57,
+                                 selection1 == "Q63" ~ Q63),
+         preference2 = case_when(selection2 == "Q43" ~ Q43,
+                                 selection2 == "Q57" ~ Q57,
+                                 selection2 == "Q63" ~ Q63)) %>% 
+  mutate(petition1 = case_when(P1 %in% petitionA ~ "A",
+                               P1 %in% petitionB ~ "B",
+                               P1 %in% petitionC ~ "C",
+                               P1 %in% petitionD ~ "D"),
+         petition2 = case_when(P2 %in% petitionA ~ "A",
+                               P2 %in% petitionB ~ "B",
+                               P2 %in% petitionC ~ "C",
+                               P2 %in% petitionD ~ "D"),
+         petition3 = case_when(P3 %in% petitionA ~ "A",
+                               P3 %in% petitionB ~ "B",
+                               P3 %in% petitionC ~ "C",
+                               P3 %in% petitionD ~ "D"),
+         petition4 = case_when(P4 %in% petitionA ~ "A",
+                               P4 %in% petitionB ~ "B",
+                               P4 %in% petitionC ~ "C",
+                               P4 %in% petitionD ~ "D")) %>% 
+  select(ResponseId, 
+         starts_with("Q"), pass_attention, str_c("petition", 1:4), str_c("preference",1:2)) %>% 
+  pivot_longer(starts_with("petition")) 
+# %>% 
+#   mutate(subject_matter_expert = coalesce(Q70_1, Q67_1, Q72_1, Q88_1, Q80_1, Q78_1, Q82_1, Q84_1),
+#          highly_committed = coalesce(Q70_2, Q67_2, Q72_2, Q88_2, Q80_2, Q78_2, Q82_2, Q84_2)) %>% 
+#   select(c("name", "value"), ResponseId, subject_matter_expert, highly_committed, everything()) 
+# %>% 
+#   mutate(selected_petition = case_when(Q43 %in% c('Stop Cyanide Fishing: Save the Humphead Wrasse') 
+#                                        & petition == 'A' ~ 'A',
+#                             ))
+  
 
 df %>% 
-  summarize(pass_attention = mean(pass_attention),
-            motivate_futherA = mean(motivate_furtherA, na.rm = TRUE),
-            subject_matter_expertA = mean(subject_matter_expertA, na.rm = TRUE))
+  summarize(pass_attention = mean(pass_attention))
 
 df %>% 
   filter(pass_attention == 0) %>% 
   select(Q5, Q8, FL_3_DO)
 
 df %>% 
-  distinct(pairs)
+  select(name, value, preference1, preference2, Q70_1, Q67_1, Q72_1, Q88_1, Q80_1, Q78_1, Q82_1, Q84_1)
 ```
 
