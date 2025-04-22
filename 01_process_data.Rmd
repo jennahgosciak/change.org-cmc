@@ -1,0 +1,63 @@
+---
+title: "01_process_data"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+```
+
+## Load Data
+
+```{r}
+disagree_vals <- c("Somwhat Disagree", "Strongly disagree", 
+                                                        "Neither agree nor disagree")
+agree_vals <- c("Somwhat agree", "Strongly agree")
+df <- read_csv('CMC+Change.org_April+22,+2025_13.30.csv', skip=0) %>% 
+  filter(`StartDate` != '{"ImportId":"startDate","timeZone":"America/Denver"}' &
+           `StartDate` != "Start Date") %>% 
+  mutate(across(c("RecordedDate", "StartDate", "EndDate"), ~ymd_hms(.))) %>% 
+  filter(Status == "IP Address") %>% 
+  mutate(pass_attention = case_when(str_detect(Q5, "AI-generated drafting") &
+                                      FL_3_DO == 'AI-Primed' ~ 1,
+                                    !str_detect(Q8, "AI-generated drafting") &
+                                      FL_3_DO == 'Control' ~ 1,
+                                    TRUE ~ 0),
+         subject_matter_expertA = case_when((Q60_1 %in% agree_vals & 
+                                              str_sub(df$`PetitionPair1-AB_DO`, 1,3) == "Q12") |
+                                              (Q70_1 %in% agree_vals & 
+                                              str_sub(df$`PetitionPair2-AC_DO`, 1,3) == "Q39") ~ 1, 
+                                           (Q60_1 %in% disagree_vals & 
+                                              str_sub(df$`PetitionPair1-AB_DO`, 1,3) == "Q12") |
+                                              (Q70_1 %in% disagree_vals & 
+                                              str_sub(df$`PetitionPair2-AC_DO`, 1,3) == "Q39") ~ 0,
+                                           TRUE ~ NA),
+         motivate_furtherA = case_when((Q60_2 %in% c("Somwhat agree", "Strongly agree") & 
+                                              str_sub(df$`PetitionPair1-AB_DO`, 1,3) == "Q12") |
+                                              (Q70_2 %in% agree_vals & 
+                                              str_sub(df$`PetitionPair2-AC_DO`, 1,3) == "Q39") ~ 1, 
+                                           (Q60_2 %in% disagree_vals & 
+                                              str_sub(df$`PetitionPair1-AB_DO`, 1,3) == "Q12") | 
+                                         (Q70_2 %in% disagree_vals & 
+                                              str_sub(df$`PetitionPair2-AC_DO`, 1,3) == "Q39") ~ 0,
+                                           TRUE ~ NA),
+         pairs = case_when(FL_22_DO == 'FL_27' ~ 'AC,BD',
+                                FL_22_DO == 'FL_26' ~ 'AB,CD',
+                                FL_22_DO == 'FL_28' ~ 'AD,BC'))
+
+df %>% 
+  summarize(pass_attention = mean(pass_attention),
+            motivate_futherA = mean(motivate_furtherA, na.rm = TRUE),
+            subject_matter_expertA = mean(subject_matter_expertA, na.rm = TRUE))
+
+df %>% 
+  filter(pass_attention == 0) %>% 
+  select(Q5, Q8, FL_3_DO)
+
+df %>% 
+  distinct(pairs)
+```
+
