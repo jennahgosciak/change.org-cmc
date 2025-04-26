@@ -9,6 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(haven)
+library(broom)
 
 # df_cand <- read_dta('repl/candidate.dta')
 ```
@@ -16,77 +17,126 @@ library(haven)
 ## Load Data
 
 ```{r}
-disagree_vals <- c("Somwhat Disagree", "Strongly disagree", 
-                                                        "Neither agree nor disagree")
-agree_vals <- c("Somwhat agree", "Strongly agree")
+disagree_vals <- c("Somewhat Disagree", "Strongly disagree", "Neither agree nor disagree")
+agree_vals <- c("Somewhat agree", "Strongly agree")
 petitionA <- c("Q12", "Q39", "Q53")
 petitionB <- c("Q15", "Q41", "Q59")
 petitionC <- c("Q25", "Q45", "Q55")
 petitionD <- c("Q24", "Q47", "Q61")
-  
-# var_exprs <- rlang::parse_exprs(paste0("P1a == ", yrs, " ~ ", yrs))
-# vars_exprs
 
+question1_vars <- c("var_P1a", "var_P2a", "var_P3a", "var_P4a")
+question2_vars <- c("var_P1b", "var_P2b", "var_P3b", "var_P4b")
+
+titles <- c("A" = "Stop Cyanide Fishing: Save the Humphead Wrasse",
+            "B" = "Enforce Cyanide Fishing Bans and Protect the Humphead Wrasse",
+            "C" = "No Fishing, Save the Parrotfish!",
+            "D" = "The Parrotfish Should Live!")
+
+df
 df <- read_csv('CMC+Change.org_April+22,+2025_13.30.csv', skip=0) %>% 
   filter(`StartDate` != '{"ImportId":"startDate","timeZone":"America/Denver"}' &
            `StartDate` != "Start Date") %>% 
   mutate(across(c("RecordedDate", "StartDate", "EndDate"), ~ymd_hms(.))) %>% 
   filter(Status == "IP Address")  %>% 
+  filter(StartDate >= ymd("2025-04-10")) %>% 
   mutate(pair_order = coalesce(FL_26_DO, FL_27_DO, FL_28_DO)) %>% 
-  #distinct(FL_22_DO, FL_26_DO, FL_27_DO, FL_28_DO, pair_order) %>%
   separate(pair_order, c("first_pair", "second_pair"), sep="\\|") %>% 
   mutate(pair1_order = coalesce(`PetitionPair1-AB_DO`, `PetitionPair2-AC_DO`, `PetitionPair3-A/D_DO`),
          pair2_order = coalesce(`PetitionPair1-CD_DO`, `PetitionPair2-BD_DO`, `PetitionPair3-B/C_DO`)) %>% 
-  separate(pair1_order, c("P1", "P1a", "P1b", "P2", "P2a", "P2b", "selection1"), sep="\\|") %>%
-  separate(pair2_order, c("P3", "P3a", "P3b", "P4", "P4a", "P4b", "selection2"), sep="\\|") %>% 
+  separate(pair1_order, c("var_P1", "var_P1a", "var_P1b", 
+                          "var_P2", "var_P2a", "var_P2b", 
+                          "var_selection1"), sep="\\|") %>%
+  separate(pair2_order, c("var_P3", "var_P3a", "var_P3b", 
+                          "var_P4", "var_P4a", "var_P4b", 
+                          "var_selection2"), sep="\\|") %>% 
+  mutate(across(question1_vars, ~str_c(., "_1"), .names = "{.col}_1")) %>% 
+  mutate(across(question1_vars, ~str_c(., "_2"), .names = "{.col}_2")) %>% 
+  mutate(across(question2_vars, ~str_c(., "_1"), .names = "{.col}_1")) %>% 
+  mutate(across(question2_vars, ~str_c(., "_2"), .names = "{.col}_2")) %>% 
+  rowwise() %>% 
+  mutate(across(str_c(question1_vars, "_1"), ~get(.), 
+                .names="subject_matter_expert{str_extract(col, 'P[0-9]')}")) %>% 
+  mutate(across(str_c(question1_vars, "_2"), ~get(.), 
+                .names="author_committed{str_extract(col, 'P[0-9]')}")) %>% 
+  mutate(across(str_c(question2_vars, "_1"), ~get(.), 
+                .names="persuade_undecided{str_extract(col, 'P[0-9]')}")) %>% 
+  mutate(across(str_c(question2_vars, "_2"), ~get(.), 
+                .names="motivate_reader{str_extract(col, 'P[0-9]')}")) %>% 
+  ungroup() %>% 
   mutate(pass_attention = case_when(str_detect(Q5, "AI-generated drafting") &
                                       FL_3_DO == 'AI-Primed' ~ 1,
                                     !str_detect(Q8, "AI-generated drafting") &
                                       FL_3_DO == 'Control' ~ 1,
-                                    TRUE ~ 0)) %>% 
-  mutate(preference1 = case_when(selection1 == "Q43" ~ Q43,
-                                 selection1 == "Q57" ~ Q57,
-                                 selection1 == "Q63" ~ Q63),
-         preference2 = case_when(selection2 == "Q43" ~ Q43,
-                                 selection2 == "Q57" ~ Q57,
-                                 selection2 == "Q63" ~ Q63)) %>% 
-  mutate(petition1 = case_when(P1 %in% petitionA ~ "A",
-                               P1 %in% petitionB ~ "B",
-                               P1 %in% petitionC ~ "C",
-                               P1 %in% petitionD ~ "D"),
-         petition2 = case_when(P2 %in% petitionA ~ "A",
-                               P2 %in% petitionB ~ "B",
-                               P2 %in% petitionC ~ "C",
-                               P2 %in% petitionD ~ "D"),
-         petition3 = case_when(P3 %in% petitionA ~ "A",
-                               P3 %in% petitionB ~ "B",
-                               P3 %in% petitionC ~ "C",
-                               P3 %in% petitionD ~ "D"),
-         petition4 = case_when(P4 %in% petitionA ~ "A",
-                               P4 %in% petitionB ~ "B",
-                               P4 %in% petitionC ~ "C",
-                               P4 %in% petitionD ~ "D")) %>% 
-  select(ResponseId, 
-         starts_with("Q"), pass_attention, str_c("petition", 1:4), str_c("preference",1:2)) %>% 
-  pivot_longer(starts_with("petition")) 
-# %>% 
-#   mutate(subject_matter_expert = coalesce(Q70_1, Q67_1, Q72_1, Q88_1, Q80_1, Q78_1, Q82_1, Q84_1),
-#          highly_committed = coalesce(Q70_2, Q67_2, Q72_2, Q88_2, Q80_2, Q78_2, Q82_2, Q84_2)) %>% 
-#   select(c("name", "value"), ResponseId, subject_matter_expert, highly_committed, everything()) 
-# %>% 
-#   mutate(selected_petition = case_when(Q43 %in% c('Stop Cyanide Fishing: Save the Humphead Wrasse') 
-#                                        & petition == 'A' ~ 'A',
-#                             ))
-  
-
-df %>% 
-  summarize(pass_attention = mean(pass_attention))
-
-df %>% 
-  filter(pass_attention == 0) %>% 
-  select(Q5, Q8, FL_3_DO)
-
-df %>% 
-  select(name, value, preference1, preference2, Q70_1, Q67_1, Q72_1, Q88_1, Q80_1, Q78_1, Q82_1, Q84_1)
+                                    TRUE ~ 0),
+         AI_primed = if_else(FL_3_DO == "AI-Primed", 1, 0)) %>%
+  rowwise() %>%
+  mutate(selection1 = get(var_selection1),
+         selection2 = get(var_selection2)) %>%
+  ungroup() %>% 
+mutate(across(c("var_P1", "var_P2", "var_P3", "var_P4"), 
+              ~case_when(
+  . %in% petitionA ~ "A",
+  . %in% petitionB ~ "B",
+  . %in% petitionC ~ "C",
+  . %in% petitionD ~ "D"),
+              .names="petition{str_replace(col, 'var_', '')}")) %>% 
+  pivot_longer(cols = c(str_c("petitionP", 1:4),
+                        str_c("subject_matter_expert", str_c("P", 1:4)),
+                        str_c("author_committed", str_c("P", 1:4)),
+                        str_c("persuade_undecided", str_c("P", 1:4)),
+                        str_c("motivate_reader", str_c("P", 1:4))), 
+               names_to=c("type", "petition_order"),
+               names_pattern=c("(.*)(P[0-9])"),
+               values_to="response") %>% 
+  mutate(petition_order = str_extract(petition_order, "(?<=P)[0-9]") %>% 
+           as.numeric()) %>% 
+  pivot_wider(names_from = c("type"), values_from = c("response")) %>%
+  mutate(selected_petition = if_else(petition_order %in% c(1,2),
+                                     names(titles)[match(selection1, titles)]==petition,
+                                     names(titles)[match(selection2, titles)]==petition) %>% 
+           as.numeric()) %>% 
+  mutate(long_petition = if_else(petition %in% c("B", "D"), 0, 1),
+         good_title = if_else(petition %in% c("A", "B"), 1, 0 ))
 ```
+
+```{r}
+df %>% 
+  summarize(pass_attention = mean(pass_attention),
+            per_AI_primed = mean(AI_primed))
+```
+```{r}
+df_model_overall <- lm(selected_petition ~ long_petition + good_title, data = df)
+tidy(df_model_overall)
+
+df_model <- lm(selected_petition ~ long_petition + good_title, data = df %>% 
+                 filter(AI_primed==0))
+tidy(df_model)
+
+df_model_AI <- lm(selected_petition ~ long_petition + good_title, data = df %>% 
+                    filter(AI_primed==1))
+tidy(df_model_AI)
+
+df %>% 
+  group_by(AI_primed, long_petition) %>% 
+  summarize(avg = mean(selected_petition, na.rm = T))
+
+df %>% 
+  group_by(AI_primed, good_title) %>% 
+  summarize(avg = mean(selected_petition, na.rm = T))
+
+bind_rows(
+  bind_rows(
+  tidy(lm(selected_petition ~ 0 + long_petition, data = filter(df, AI_primed==1))),
+  tidy(lm(selected_petition ~ 0 + good_title, data = filter(df, AI_primed==1)))
+) %>% 
+  mutate(type = "AI_primed"),
+
+bind_rows(
+  tidy(lm(selected_petition ~ 0 + long_petition, data = filter(df, AI_primed==0))),
+  tidy(lm(selected_petition ~ 0 + good_title, data = filter(df, AI_primed==0)))
+) %>% 
+  mutate(type = "No AI priming")
+)
+```
+
 
