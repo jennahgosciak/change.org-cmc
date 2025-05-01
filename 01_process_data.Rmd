@@ -10,6 +10,11 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(haven)
 library(broom)
+library(broom.helpers)    # Add empty reference categories to tidy model data frames
+library(ggforce) 
+library(survey)
+library(marginaleffects)
+library(scales)  
 
 # df_cand <- read_dta('repl/candidate.dta')
 ```
@@ -36,7 +41,7 @@ df %>%
   names()
 ```
 ```{r}
-df <- read_csv('CMC+Change.org_April+28,+2025_08.34.csv', skip=0) %>% 
+df <- read_csv('CMC+Change.org_April+30,+2025_21.56.csv', skip=0) %>% 
   filter(`StartDate` != '{"ImportId":"startDate","timeZone":"America/Denver"}' &
            `StartDate` != "Start Date") %>% 
   mutate(across(c("RecordedDate", "StartDate", "EndDate"), ~ymd_hms(.))) %>% 
@@ -141,5 +146,125 @@ bind_rows(
   mutate(type = "No AI priming")
 )
 ```
+```{r}
+df_model %>%
+  tidy_and_attach()
+```
+```{r}
+df_model %>%
+  tidy_and_attach() %>% 
+  tidy_add_reference_rows() %>%
+  tidy_add_estimate_to_reference_rows() %>%
+  filter(term != "(Intercept)") %>%
+  ggplot(aes(x = estimate, y = term)) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  # annotate(
+  #   geom = "errorbar",
+  #   x = 0, xmin = 0, xmax = 683.4, y = 1.5,
+  #   width = 0.1, color = "grey70"
+  # ) +
+  # annotate(
+  #   geom = "label",
+  #   x = 683.4 / 2, y = 1.5,
+  #   label = "683.4 grams",
+  #   size = 3
+  # ) +
+  labs(
+    x = "Estimate", y = NULL,
+    title = "Relative shift in average",
+    subtitle = "Similar to AMCEs"
+  ) +
+  theme_classic()
+```
+```{r}
+model_logit <- glm(
+  selected_petition ~ long_petition + good_title, data = df %>% filter(AI_primed==1,
+                                                                       !is.na(selected_petition)),
+  family = binomial(link = "logit")
+)
+
+mfx_logit <- model_logit %>% 
+  avg_slopes()
+
+mfx_logit
+```
+```{r}
+rhs_vars <- all.vars(stats::update(formula(model_logit), 0 ~ .))
+
+model_variable_levels <- tibble(
+  variable = rhs_vars
+) %>% 
+  mutate(levels = map(variable, ~{
+    x <- df[[.x]]
+    if (is.numeric(x)) {
+      as.character(unique(x))
+    } else if (is.factor(x)) {
+      levels(x)
+    } else {
+      sort(unique(x))
+    }
+  })) %>% 
+  unnest(levels) %>% 
+  mutate(term = paste0(variable, levels))
+
+label_pp <- label_number(accuracy = 1, scale = 100, 
+                         suffix = " pp.", style_negative = "minus")
+
+label_amce <- label_number(accuracy = 0.1, scale = 100, suffix = " pp.", 
+                           style_negative = "minus", style_positive = "plus")
+
+```
+```{r}
+model_results_logit_mfx <- mfx_logit %>%
+  separate_wider_delim(
+    contrast,
+    delim = " - ", 
+    names = c("variable_level", "reference_level")
+  )
+
+variable_lookup <- tribble(
+  ~variable,    ~variable_nice,
+  "good_title", "Good title",
+  "long_petition", "Long petition",
+) %>% 
+  mutate(variable_nice = fct_inorder(variable_nice))
+
+# Combine full dataset of factor levels with marginal effects
+plot_data_logit_mfx <- model_variable_levels %>%
+  left_join(
+    model_results_logit_mfx,
+    by = join_by(variable == term, levels == variable_level)
+  ) %>%
+  # Make these zero
+  mutate(
+    across(
+      c(estimate, conf.low, conf.high),
+      ~ ifelse(is.na(.x), 0, .x)
+    )
+  ) %>% 
+  left_join(variable_lookup, by = join_by(variable)) %>% 
+  mutate(across(c(levels, variable_nice), ~fct_inorder(.)))
+
+plot_data_logit_mfx
+```
+
+```{r}
+ggplot(
+  plot_data_logit_mfx,
+  aes(x = estimate, y = levels, color = variable_nice)
+) +
+  geom_vline(xintercept = 0) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  scale_x_continuous(labels = label_pp) +
+  guides(color = "none") +
+  labs(
+    x = "Percentage point change in probability of petition selection",
+    y = NULL,
+    title = "AMCEs from logistic regression marginal effects"
+  ) +
+  facet_col(facets = "variable_nice", scales = "free", space = "free")
+```
+
+
 
 
