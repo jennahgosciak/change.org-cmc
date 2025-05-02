@@ -32,13 +32,13 @@ titles <- c("A" = "Stop Cyanide Fishing: Save the Humphead Wrasse",
             "C" = "No Fishing, Save the Parrotfish!",
             "D" = "The Parrotfish Should Live!")
 
-df
-df <- read_csv('CMC+Change.org_April+22,+2025_13.30.csv', skip=0) %>% 
+
+df <- read_csv('data/jennah_export.csv', skip=0) %>% 
   filter(`StartDate` != '{"ImportId":"startDate","timeZone":"America/Denver"}' &
            `StartDate` != "Start Date") %>% 
   mutate(across(c("RecordedDate", "StartDate", "EndDate"), ~ymd_hms(.))) %>% 
   filter(Status == "IP Address")  %>% 
-  filter(StartDate >= ymd("2025-04-10")) %>% 
+  filter(StartDate >= ymd("2025-04-20")) %>% 
   mutate(pair_order = coalesce(FL_26_DO, FL_27_DO, FL_28_DO)) %>% 
   separate(pair_order, c("first_pair", "second_pair"), sep="\\|") %>% 
   mutate(pair1_order = coalesce(`PetitionPair1-AB_DO`, `PetitionPair2-AC_DO`, `PetitionPair3-A/D_DO`),

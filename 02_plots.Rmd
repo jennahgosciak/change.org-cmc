@@ -1,0 +1,21 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(haven)
+library(broom)
+library(ggforce) 
+library(survey)
+library(marginaleffects)
+library(scales)  
+
+source("01_process_data_script.R", local = knitr::knit_global())
+
+```
+
+```{r}
+df <- process_qualtrics('data/export_labels_20250502.csv')
+```

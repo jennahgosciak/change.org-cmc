@@ -22,13 +22,14 @@ titles <- c("A" = "Stop Cyanide Fishing: Save the Humphead Wrasse",
             "C" = "No Fishing, Save the Parrotfish!",
             "D" = "The Parrotfish Should Live!")
 
-process_petitions <- function(path_to_qualtrics_export) {
+process_qualtrics <- function(path_to_qualtrics_export,
+                              min_date = "2025-04-20") {
   df <- read_csv(path_to_qualtrics_export, skip=0) %>% 
     filter(`StartDate` != '{"ImportId":"startDate","timeZone":"America/Denver"}' &
              `StartDate` != "Start Date") %>% 
     mutate(across(c("RecordedDate", "StartDate", "EndDate"), ~ymd_hms(.))) %>% 
     filter(Status == "IP Address")  %>% 
-    filter(StartDate >= ymd("2025-04-16")) %>% 
+    filter(StartDate >= ymd(min_date)) %>% 
     mutate(pair_order = coalesce(FL_26_DO, FL_27_DO, FL_28_DO)) %>% 
     separate(pair_order, c("first_pair", "second_pair"), sep="\\|") %>% 
     mutate(pair1_order = coalesce(`PetitionPair1-AB_DO`, `PetitionPair2-AC_DO`, `PetitionPair3-A/D_DO`),
@@ -87,4 +88,6 @@ process_petitions <- function(path_to_qualtrics_export) {
              as.numeric()) %>% 
     mutate(long_petition = if_else(petition %in% c("B", "D"), 0, 1),
            good_title = if_else(petition %in% c("A", "B"), 1, 0 ))
+  
+  return(df)
 }
