@@ -36,8 +36,6 @@ titles <- c("A" = "Stop Cyanide Fishing: Save the Humphead Wrasse",
             "B" = "Enforce Cyanide Fishing Bans and Protect the Humphead Wrasse",
             "C" = "No Fishing, Save the Parrotfish!",
             "D" = "The Parrotfish Should Live!")
-
-=======
 df %>% 
   names()
 ```
