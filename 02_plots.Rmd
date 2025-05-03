@@ -18,6 +18,53 @@ source("01_process_data_script.R", local = knitr::knit_global())
 
 ```{r}
 df <- process_qualtrics('data/export_labels_20250502.csv')
+
+prescreen <- read_csv('data/prescreen_data_20250502.csv', skip = 1)
+
+print(prop.table(table(prescreen$Gender)) * 100)
+print(prop.table(table(prescreen$Race)) * 100)
+print(prop.table(table(prescreen$College)) * 100)
+print(prop.table(table(prescreen$`Social Media`)) * 100)
+```
+
+```{r}
+df %>% 
+  summarize(pass_attention = mean(pass_attention),
+            per_AI_primed = mean(AI_primed))
+```
+```{r}
+df_model_overall <- lm(selected_petition ~ long_petition + good_title, data = df)
+tidy(df_model_overall)
+
+df_model <- lm(selected_petition ~ long_petition + good_title, data = df %>% 
+                 filter(AI_primed==0))
+tidy(df_model)
+
+df_model_AI <- lm(selected_petition ~ long_petition + good_title, data = df %>% 
+                    filter(AI_primed==1))
+tidy(df_model_AI)
+
+df %>% 
+  group_by(AI_primed, long_petition) %>% 
+  summarize(avg = mean(selected_petition, na.rm = T))
+
+df %>% 
+  group_by(AI_primed, good_title) %>% 
+  summarize(avg = mean(selected_petition, na.rm = T))
+
+bind_rows(
+  bind_rows(
+  tidy(lm(selected_petition ~ 0 + long_petition, data = filter(df, AI_primed==1))),
+  tidy(lm(selected_petition ~ 0 + good_title, data = filter(df, AI_primed==1)))
+) %>% 
+  mutate(type = "AI_primed"),
+
+bind_rows(
+  tidy(lm(selected_petition ~ 0 + long_petition, data = filter(df, AI_primed==0))),
+  tidy(lm(selected_petition ~ 0 + good_title, data = filter(df, AI_primed==0)))
+) %>% 
+  mutate(type = "No AI priming")
+)
 ```
 
 ```{r}
@@ -32,17 +79,6 @@ df_model %>%
   filter(term != "(Intercept)") %>%
   ggplot(aes(x = estimate, y = term)) +
   geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
-  # annotate(
-  #   geom = "errorbar",
-  #   x = 0, xmin = 0, xmax = 683.4, y = 1.5,
-  #   width = 0.1, color = "grey70"
-  # ) +
-  # annotate(
-  #   geom = "label",
-  #   x = 683.4 / 2, y = 1.5,
-  #   label = "683.4 grams",
-  #   size = 3
-  # ) +
   labs(
     x = "Estimate", y = NULL,
     title = "Relative shift in average",
