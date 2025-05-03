@@ -1,6 +1,5 @@
 ---
 title: "R Notebook"
-output: html_notebook
 ---
 
 ```{r}
@@ -27,11 +26,68 @@ print(prop.table(table(prescreen$College)) * 100)
 print(prop.table(table(prescreen$`Social Media`)) * 100)
 ```
 
+Describe AI Primed category 
+```{r}
+
+## Prepare Likert data for Q13
+df <- df %>% 
+  rename(ai_is_appropriate = Q13,
+         is_conservation_committed = Q14)
+
+ai_likert <- df %>%
+  group_by(AI_primed, ai_is_appropriate) %>%
+  summarise(count = n(), .groups = "keep") %>%
+  group_by(AI_primed) %>% 
+  mutate(percentage = count / sum(count) * 100) %>%
+  ungroup()
+
+ai_likert <- ai_likert %>%
+  mutate(
+    ai_is_appropriate_broad = case_when(
+      ai_is_appropriate == "Strongly disagree" ~ "Disagree", 
+      ai_is_appropriate == "Somewhat disagree" ~ "Disagree",
+      ai_is_appropriate == "Neither agree nor disagree" ~ "Neither agree nor disagree",
+      ai_is_appropriate == "Somewhat agree" ~ "Agree",
+      ai_is_appropriate == "Strongly agree" ~ "Agree",
+      TRUE ~ NA
+    )
+  )
+
+ai_likert$ai_is_appropriate_broad <- factor(ai_likert$ai_is_appropriate_broad,
+                              levels = c("Disagree",
+                                         "Neither agree nor disagree",
+                                         "Agree"))
+
+ai_likert$AI_primed <- factor(ai_likert$AI_primed,
+                              levels = c(0,1),
+                              labels = c("Control", "AI-Primed"))
+
+```
+
+```{r}
+library(ggstats)
+library(ggthemes)
+
+gglikert(ai_likert,
+         include = ai_is_appropriate_broad,
+         facet_rows = vars(AI_primed),
+         symmetric = TRUE,
+         add_totals = FALSE) +
+  ggtitle("It is appropriate to use AI when writing a petition.") +
+  theme_minimal() + 
+    theme(
+    axis.text.y = element_blank())
+
+```
+
+
 ```{r}
 df %>% 
   summarize(pass_attention = mean(pass_attention),
             per_AI_primed = mean(AI_primed))
 ```
+
+
 ```{r}
 df_model_overall <- lm(selected_petition ~ long_petition + good_title, data = df)
 tidy(df_model_overall)
