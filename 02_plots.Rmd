@@ -10,6 +10,8 @@ library(ggforce)
 library(survey)
 library(marginaleffects)
 library(scales)  
+library(ggstats)
+library(ggthemes)
 
 source("01_process_data_script.R", local = knitr::knit_global())
 
@@ -25,7 +27,7 @@ print(prop.table(table(prescreen$Race)) * 100)
 print(prop.table(table(prescreen$College)) * 100)
 print(prop.table(table(prescreen$`Social Media`)) * 100)
 ```
-
+## Descriptive Plots
 Describe AI Primed category 
 ```{r}
 
@@ -62,12 +64,6 @@ ai_likert$AI_primed <- factor(ai_likert$AI_primed,
                               levels = c(0,1),
                               labels = c("Control", "AI-Primed"))
 
-```
-
-```{r}
-library(ggstats)
-library(ggthemes)
-
 gglikert(ai_likert,
          include = ai_is_appropriate_broad,
          facet_rows = vars(AI_primed),
@@ -79,8 +75,82 @@ gglikert(ai_likert,
     axis.text.y = element_blank())
 
 ```
+Marignal means
+```{r}
+df_mm <- df
+df_mm$long_petition <- factor(df_mm$long_petition,
+                           levels = c(0,1),
+                           labels = c("Short", "Long"))
+df_mm$good_title <- factor(df_mm$good_title,
+                        levels = c(0,1),
+                        labels = c("Bad","Good"))
 
 
+ai_mm <- bind_rows(
+  tidy(lm(selected_petition ~ 0 + good_title, data = df_mm %>% filter(AI_primed == 1)),
+       conf.int = TRUE),
+  tidy(lm(selected_petition ~ 0 + long_petition, data = df_mm %>% filter(AI_primed == 1)),
+       conf.int = TRUE))
+ai_mm <- ai_mm %>%
+  mutate(
+    petition_attribute = case_when(
+    term %in% c("good_titleBad", "good_titleGood") ~ "title quality",
+    term %in% c("long_petitionShort", "long_petitionLong") ~ "petition length"
+  ),
+  attribute_value = case_when(
+    term == "good_titleBad" ~ "Bad Title",
+    term == "good_titleGood" ~ "Good Title",
+    term == "long_petitionShort" ~ "Short Petition",
+    term == "long_petitionLong" ~ "Long Petition"
+  )
+  )
+
+control_mm <- bind_rows(
+  tidy(lm(selected_petition ~ 0 + good_title, data = df_mm %>% filter(AI_primed == 0)),
+       conf.int = TRUE),
+  tidy(lm(selected_petition ~ 0 + long_petition, data = df_mm %>% filter(AI_primed == 0)),
+       conf.int = TRUE))
+
+control_mm <- control_mm %>% 
+  mutate(
+    petition_attribute = case_when(
+    term %in% c("good_titleBad", "good_titleGood") ~ "Title Quality",
+    term %in% c("long_petitionShort", "long_petitionLong") ~ "Petition Length"
+  ),
+  attribute_value = case_when(
+    term == "good_titleBad" ~ "Bad Title",
+    term == "good_titleGood" ~ "Good Title",
+    term == "long_petitionShort" ~ "Short Petition",
+    term == "long_petitionLong" ~ "Long Petition"
+  ))
+
+ai_mm_plot <- ai_mm %>%
+  ggplot(aes(x = estimate, y = attribute_value, color = petition_attribute)) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, color = "grey", linetype = 2) + 
+  scale_x_continuous(labels = label_comma()) +
+  labs(
+    x = "Marginal Mean", y = NULL, 
+    title = "Treatment Group"
+  ) + 
+  guides(color = guide_legend(title = "Petition Attribute"))
+
+control_mm_plot <- control_mm %>%
+  ggplot(aes(x = estimate, y = attribute_value, color = petition_attribute)) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, color = "grey", linetype = 2) + 
+  scale_x_continuous(labels = label_comma()) +
+  labs(
+    x = "Marginal Mean", y = NULL, 
+    title = "Control Group"
+  ) + 
+  guides(color = guide_legend(title = "Petition Attribute"))
+
+ai_mm_plot 
+control_mm_plot
+```
+
+## Causal Plots
 ```{r}
 df %>% 
   summarize(pass_attention = mean(pass_attention),
@@ -128,19 +198,26 @@ df_model %>%
   tidy_and_attach()
 ```
 ```{r}
-df_model %>%
+df_model <- df_model %>%
   tidy_and_attach() %>% 
   tidy_add_reference_rows() %>%
   tidy_add_estimate_to_reference_rows() %>%
-  filter(term != "(Intercept)") %>%
-  ggplot(aes(x = estimate, y = term)) +
+  filter(term != "(Intercept)")
+
+df_model$term <- factor(df_model$term,
+                         levels = c("long_petition", "good_title"),
+                         labels = c("Petition Length", "Title Quality"))
+
+amce_plot <- ggplot(df_model, aes(x = estimate, y = term, colour = term)) +
   geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, color = "grey", linetype = 2) + 
   labs(
-    x = "Estimate", y = NULL,
-    title = "Relative shift in average",
-    subtitle = "Similar to AMCEs"
-  ) +
+    x = "Estimated AMCE", y = NULL
+  ) + 
+  guides(color = guide_legend(title = "Petition Attribute")) + 
   theme_classic()
+
+amce_plot
 ```
 ```{r}
 model_logit <- glm(
