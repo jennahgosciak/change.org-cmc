@@ -18,9 +18,10 @@ source("01_process_data_script.R", local = knitr::knit_global())
 ```
 
 ```{r}
-df <- process_qualtrics('data/export_labels_20250502.csv')
+df <- process_qualtrics('data/CMC+Change.org_May+12,+2025_07.16.csv',
+                        min_date = "2025-04-21")
 
-prescreen <- read_csv('data/prescreen_data_20250502.csv', skip = 1)
+prescreen <- read_csv('data/prescreen_data_20250512.csv', skip = 1)
 
 print(prop.table(table(prescreen$Gender)) * 100)
 print(prop.table(table(prescreen$Race)) * 100)
