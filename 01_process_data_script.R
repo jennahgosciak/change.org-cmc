@@ -29,7 +29,8 @@ process_qualtrics <- function(path_to_qualtrics_export,
              `StartDate` != "Start Date") %>% 
     mutate(across(c("RecordedDate", "StartDate", "EndDate"), ~ymd_hms(.))) %>% 
     filter(Status == "IP Address")  %>% 
-    filter(StartDate >= ymd(min_date)) %>% 
+    filter(StartDate >= ymd(min_date)) %>%
+    filter(Finished=='True') %>% 
     mutate(pair_order = coalesce(FL_26_DO, FL_27_DO, FL_28_DO)) %>% 
     separate(pair_order, c("first_pair", "second_pair"), sep="\\|") %>% 
     mutate(pair1_order = coalesce(`PetitionPair1-AB_DO`, `PetitionPair2-AC_DO`, `PetitionPair3-A/D_DO`),

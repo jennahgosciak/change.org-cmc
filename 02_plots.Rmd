@@ -12,8 +12,11 @@ library(marginaleffects)
 library(scales)  
 library(ggstats)
 library(ggthemes)
+library(xtable)
 
 source("01_process_data_script.R", local = knitr::knit_global())
+
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
 ```
 
@@ -22,11 +25,34 @@ df <- process_qualtrics('data/CMC+Change.org_May+12,+2025_07.16.csv',
                         min_date = "2025-04-21")
 
 prescreen <- read_csv('data/prescreen_data_20250512.csv', skip = 1)
+prescreen
 
-print(prop.table(table(prescreen$Gender)) * 100)
+print(xtable(prop.table(table(prescreen$Gender)) * 100))
 print(prop.table(table(prescreen$Race)) * 100)
 print(prop.table(table(prescreen$College)) * 100)
 print(prop.table(table(prescreen$`Social Media`)) * 100)
+
+prescreen %>% 
+  pivot_longer(c("Gender", "Race", "College", "Social Media")) %>% 
+  group_by(name, value) %>% 
+  summarize(n = n()) %>% 
+  group_by(name) %>% 
+  mutate(pct = 100*n /sum(n)) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(value, pct, fill=name)) +
+  #facet_grid(cols="name", scales="free_x", axes="all_x") +
+  facet_grid(.~name, scales = "free_x", space = "free") +
+  scale_fill_manual(values=cbPalette) +
+  theme_minimal() + 
+  labs(x="Category", y = "Percent of participants",
+       fill="") +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0.5, hjust=1))
+
+ggsave("participants.pdf", height=10, width=10)
+
+prescreen %>% 
+  nrow()
 ```
 ## Descriptive Plots
 Describe AI Primed category 
@@ -37,14 +63,24 @@ df <- df %>%
   rename(ai_is_appropriate = Q13,
          is_conservation_committed = Q14)
 
-ai_likert <- df %>%
+df %>% 
+  distinct(ResponseId, AI_primed) %>% 
+  group_by(AI_primed) %>% 
+  summarize(n = n())
+```
+
+
+```{r}
+ai_likert_summary <- df %>%
+  distinct(ResponseId, AI_primed, ai_is_appropriate) %>%
   group_by(AI_primed, ai_is_appropriate) %>%
   summarise(count = n(), .groups = "keep") %>%
-  group_by(AI_primed) %>% 
+  group_by(AI_primed) %>%
   mutate(percentage = count / sum(count) * 100) %>%
   ungroup()
 
-ai_likert <- ai_likert %>%
+ai_likert <- df %>%
+  distinct(ResponseId, AI_primed, ai_is_appropriate) %>%
   mutate(
     ai_is_appropriate_broad = case_when(
       ai_is_appropriate == "Strongly disagree" ~ "Disagree", 
@@ -53,7 +89,8 @@ ai_likert <- ai_likert %>%
       ai_is_appropriate == "Somewhat agree" ~ "Agree",
       ai_is_appropriate == "Strongly agree" ~ "Agree",
       TRUE ~ NA
-    )
+    ),
+    ai_approp_agree = if_else(ai_is_appropriate_broad == 'Agree', 1, 0)
   )
 
 ai_likert$ai_is_appropriate_broad <- factor(ai_likert$ai_is_appropriate_broad,
@@ -65,6 +102,7 @@ ai_likert$AI_primed <- factor(ai_likert$AI_primed,
                               levels = c(0,1),
                               labels = c("Control", "AI-Primed"))
 
+
 gglikert(ai_likert,
          include = ai_is_appropriate_broad,
          facet_rows = vars(AI_primed),
@@ -75,8 +113,24 @@ gglikert(ai_likert,
     theme(
     axis.text.y = element_blank())
 
+ggsave("ai_likert.pdf", width=10)
+
+gglikert(ai_likert,
+         include = ai_is_appropriate_broad,
+         #symmetric = TRUE,
+         add_totals = FALSE) +
+  ggtitle("It is appropriate to use AI when writing a petition.") +
+  theme_minimal() + 
+    theme(
+    axis.text.y = element_blank())
+
+lm(ai_approp_agree~AI_primed, data=ai_likert) %>% 
+  summary()
 ```
+
 Marignal means
+
+
 ```{r}
 df_mm <- df
 df_mm$long_petition <- factor(df_mm$long_petition,
@@ -86,17 +140,18 @@ df_mm$good_title <- factor(df_mm$good_title,
                         levels = c(0,1),
                         labels = c("Bad","Good"))
 
-
-ai_mm <- bind_rows(
-  tidy(lm(selected_petition ~ 0 + good_title, data = df_mm %>% filter(AI_primed == 1)),
+overall_mm <- bind_rows(
+  tidy(lm(selected_petition ~ 0 + good_title, 
+          data = df_mm),
        conf.int = TRUE),
-  tidy(lm(selected_petition ~ 0 + long_petition, data = df_mm %>% filter(AI_primed == 1)),
-       conf.int = TRUE))
-ai_mm <- ai_mm %>%
+  tidy(lm(selected_petition ~ 0 + long_petition,
+          data = df_mm),
+       conf.int = TRUE)
+) %>%
   mutate(
     petition_attribute = case_when(
-    term %in% c("good_titleBad", "good_titleGood") ~ "title quality",
-    term %in% c("long_petitionShort", "long_petitionLong") ~ "petition length"
+    term %in% c("good_titleBad", "good_titleGood") ~ "Title Quality",
+    term %in% c("long_petitionShort", "long_petitionLong") ~ "Petition Length"
   ),
   attribute_value = case_when(
     term == "good_titleBad" ~ "Bad Title",
@@ -106,13 +161,31 @@ ai_mm <- ai_mm %>%
   )
   )
 
+ai_mm <- bind_rows(
+  tidy(lm(selected_petition ~ 0 + good_title, 
+          data = df_mm %>% filter(AI_primed == 1)),
+       conf.int = TRUE),
+  tidy(lm(selected_petition ~ 0 + long_petition, 
+          data = df_mm %>% filter(AI_primed == 1)),
+       conf.int = TRUE)) %>%
+  mutate(
+    petition_attribute = case_when(
+    term %in% c("good_titleBad", "good_titleGood") ~ "Title Quality",
+    term %in% c("long_petitionShort", "long_petitionLong") ~ "Petition Length"
+  ),
+  attribute_value = case_when(
+    term == "good_titleBad" ~ "Bad Title",
+    term == "good_titleGood" ~ "Good Title",
+    term == "long_petitionShort" ~ "Short Petition",
+    term == "long_petitionLong" ~ "Long Petition"
+  )
+  ) 
+
 control_mm <- bind_rows(
   tidy(lm(selected_petition ~ 0 + good_title, data = df_mm %>% filter(AI_primed == 0)),
        conf.int = TRUE),
   tidy(lm(selected_petition ~ 0 + long_petition, data = df_mm %>% filter(AI_primed == 0)),
-       conf.int = TRUE))
-
-control_mm <- control_mm %>% 
+       conf.int = TRUE)) %>% 
   mutate(
     petition_attribute = case_when(
     term %in% c("good_titleBad", "good_titleGood") ~ "Title Quality",
@@ -125,6 +198,18 @@ control_mm <- control_mm %>%
     term == "long_petitionLong" ~ "Long Petition"
   ))
 
+overall_mm_plot <- overall_mm %>%
+  ggplot(aes(x = estimate, y = attribute_value, color = petition_attribute)) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, color = "grey", linetype = 2) + 
+  scale_x_continuous(labels = label_comma()) +
+  labs(
+    x = "Marginal Mean", y = NULL, 
+    title = "Overall"
+  ) + 
+  guides(color = guide_legend(title = "Petition Attribute")) +
+  theme_minimal()
+
 ai_mm_plot <- ai_mm %>%
   ggplot(aes(x = estimate, y = attribute_value, color = petition_attribute)) +
   geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
@@ -134,7 +219,8 @@ ai_mm_plot <- ai_mm %>%
     x = "Marginal Mean", y = NULL, 
     title = "Treatment Group"
   ) + 
-  guides(color = guide_legend(title = "Petition Attribute"))
+  guides(color = guide_legend(title = "Petition Attribute")) +
+  theme_minimal()
 
 control_mm_plot <- control_mm %>%
   ggplot(aes(x = estimate, y = attribute_value, color = petition_attribute)) +
@@ -145,10 +231,15 @@ control_mm_plot <- control_mm %>%
     x = "Marginal Mean", y = NULL, 
     title = "Control Group"
   ) + 
-  guides(color = guide_legend(title = "Petition Attribute"))
+  guides(color = guide_legend(title = "Petition Attribute")) +
+  theme_minimal()
 
-ai_mm_plot 
+overall_mm_plot 
+ggsave("overall_mm.pdf")
+ai_mm_plot
+ggsave("ai_mm.pdf")
 control_mm_plot
+ggsave("control_mm.pdf")
 ```
 
 ## Causal Plots
