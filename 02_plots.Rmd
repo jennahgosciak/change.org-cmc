@@ -14,6 +14,7 @@ library(ggstats)
 library(ggthemes)
 library(xtable)
 library(cregg)
+library(stargazer)
 
 source("01_process_data_script.R", local = knitr::knit_global())
 
@@ -555,6 +556,126 @@ bar_chart_other_outcomes <- function(df) {
 }
 
 bar_chart_other_outcomes(df_other_outcomes)
+```
+
+## Interaction with AI Priming
+
+```{r}
+mod_interaction <- glm(
+    selected_petition ~ long_petition:AI_primed + good_title:AI_primed + long_petition + good_title, data = df,
+    family = binomial(link = "logit")
+  ) 
+
+tidy(mod_interaction)
+
+# formatting
+stargazer(mod_interaction, title='Fully interacted model',
+          dep.var.labels=c("Selected petition"),
+          covariate.labels=c("Long",
+                             "Good title",
+                             "Long x AI primed",
+                             "Good title x AI primed"),
+          omit.stat=c("LL","ser","f"), ci=TRUE, ci.level=0.95, single.row=TRUE)
+```
+
+```{r}
+mod_interaction_length <- glm(
+    selected_petition ~ long_petition:AI_primed + long_petition + AI_primed, data = df,
+    family = binomial(link = "logit")
+  ) 
+
+tidy(mod_interaction_length)
+
+df_ai_primed_subg <- df %>% 
+  group_by(long_petition, AI_primed) %>% 
+  summarize(avg = mean(selected_petition, na.rm = TRUE)) %>% 
+  pivot_wider(names_from = "AI_primed", values_from = "avg") %>% 
+  mutate(diff = `1` - `0`)
+df_ai_primed_subg
+
+mms_mfx <- predictions(
+  mod_interaction_length,
+  newdata = datagrid(long_petition = unique, AI_primed = unique)
+)
+
+mms_mfx_diff <- predictions(
+  mod_interaction_length,
+  newdata = datagrid(long_petition = unique, AI_primed = unique),
+  by=c("long_petition", "AI_primed"),
+  hypothesis = difference ~ sequential
+) %>% 
+  as_tibble() %>% 
+  filter(hypothesis %in% c("(0 1) - (0 0)", "(1 1) - (1 0)")) %>% 
+  mutate(long_petition = if_else(hypothesis == '(0 1) - (0 0)', 'Short', 'Long'))
+
+mms_mfx
+```
+
+```{r}
+mms_plt <- mms_mfx %>% 
+  mutate(estimate_nice = case_when(
+    estimate != 0 ~ label_percent()(estimate),
+    estimate == 0 ~ NA
+  ),
+  AI_primed = factor(AI_primed, levels=c(0,1), labels=c("Not AI primed", "AI primed")),
+  long_petition = factor(long_petition, levels=c(0,1), labels=c("Short", "Long"))) %>% 
+  ggplot(aes(x = estimate, y = long_petition, color=AI_primed)) +
+  geom_vline(xintercept = 0.5) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_label(
+    aes(label = estimate_nice), 
+    position = position_dodge(width = -1.2),
+    size = 3.5, show.legend = FALSE
+  ) +
+  scale_x_continuous(labels = label_percent()) +
+  scale_color_manual(values = cbPalette) +
+  labs(
+    x = "Marginal means",
+    y = NULL,
+    color = NULL,
+    title = "Marginal means by AI priming"
+  ) +
+  facet_wrap(vars("long_petition")) +
+  theme(
+    legend.position = "bottom",
+    legend.justification = "left",
+    legend.margin = margin(l = -7, t = -5)
+  ) +
+  theme_minimal()
+mms_plt
+ggsave("marginal_means_AIprimed.pdf")
+```
+
+```{r}
+mms_mfx_diff_plt <- mms_mfx_diff %>% 
+  mutate(estimate_nice = label_amce(estimate)) %>% 
+  ggplot(aes(x = estimate, y = long_petition)) +
+  geom_vline(xintercept = 0) +
+  geom_pointrange(aes(
+    xmin = conf.low, xmax = conf.high, 
+    color = "AI priming − No AI priming"
+  )) +
+  geom_label(
+    aes(label = estimate_nice), size = 3.5,
+    nudge_y = 0.3, color = cbPalette[1]
+  ) +
+  scale_x_continuous(labels = label_pp) +
+  scale_color_manual(values = cbPalette) +
+  labs(
+    x = "Difference in marginal means",
+    y = "",
+    color = "",
+    title = "Difference in marginal means by AI priming"
+  ) +
+  theme(
+    legend.position = "bottom",
+    legend.justification = "left",
+    legend.margin = margin(l = -7, t = -5)
+  ) +
+  theme_minimal()
+
+mms_mfx_diff_plt
+ggsave("marginal_means_AIprimed.pdf")
 ```
 
 
