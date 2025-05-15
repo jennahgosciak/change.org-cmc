@@ -7,7 +7,7 @@ library(survey)
 library(marginaleffects)
 library(scales)  
 
-disagree_vals <- c("Somewhat Disagree", "Strongly disagree", "Neither agree nor disagree")
+disagree_vals <- c("Somewhat disagree", "Strongly disagree", "Neither agree nor disagree")
 agree_vals <- c("Somewhat agree", "Strongly agree")
 petitionA <- c("Q12", "Q39", "Q53")
 petitionB <- c("Q15", "Q41", "Q59")

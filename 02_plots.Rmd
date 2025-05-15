@@ -13,6 +13,7 @@ library(scales)
 library(ggstats)
 library(ggthemes)
 library(xtable)
+library(cregg)
 
 source("01_process_data_script.R", local = knitr::knit_global())
 
@@ -161,6 +162,14 @@ overall_mm <- bind_rows(
   )
   )
 
+lm(selected_petition ~ long_petition, 
+          data = df_mm %>% filter(AI_primed == 1)) %>% 
+  summary()
+
+lm(selected_petition ~ long_petition, 
+          data = df_mm %>% filter(AI_primed == 0)) %>% 
+  summary()
+
 ai_mm <- bind_rows(
   tidy(lm(selected_petition ~ 0 + good_title, 
           data = df_mm %>% filter(AI_primed == 1)),
@@ -243,6 +252,9 @@ ggsave("control_mm.pdf")
 ```
 
 ## Causal Plots
+
+Producing the AMCE using a linear model
+
 ```{r}
 df %>% 
   summarize(pass_attention = mean(pass_attention),
@@ -283,13 +295,10 @@ bind_rows(
 ) %>% 
   mutate(type = "No AI priming")
 )
-```
 
-```{r}
 df_model %>%
   tidy_and_attach()
-```
-```{r}
+
 df_model <- df_model %>%
   tidy_and_attach() %>% 
   tidy_add_reference_rows() %>%
@@ -310,54 +319,122 @@ amce_plot <- ggplot(df_model, aes(x = estimate, y = term, colour = term)) +
   theme_classic()
 
 amce_plot
+
+ggsave("amce_linear.pdf")
+```
+
+Version using `cregg`
+
+```{r}
+cregg_plot <- function(df, treatment_val=1, outcome_var, title=NA) {
+  df_amce <- df %>% 
+    rename(outcome = outcome_var) %>% 
+    filter(AI_primed==treatment_val) %>% 
+    mutate(
+           `Long Petition` = factor(long_petition, levels=c(0,1),
+                                  labels=c('Short', 'Long')),
+           `Good Title` = factor(good_title, levels=c(0,1),
+                               labels=c('Bad', 'Good'))
+           ) 
+  
+  model_amce <- amce(
+    df_amce,
+    outcome ~ `Long Petition` + `Good Title`,
+    id = ~ResponseId
+  )
+  
+  print(model_amce)
+  model_amce %>% as_tibble()
+  plt <- plot(model_amce) + 
+    guides(color = "none") +
+    theme_minimal()
+  if (!is.na(title)) {
+    plt <- plt +
+      labs(title = title)
+  }
+  
+  print(plt)
+  ggsave(str_glue('amce_cregg_{treatment_val}.pdf'))
+}
+cregg_plot(df, 1, "selected_petition")
+cregg_plot(df, 0, "selected_petition")
+```
+
+```{r}
+df_scalevars <- df %>% 
+  mutate(across(c(subject_matter_expert,author_committed, persuade_undecided,
+                  motivate_reader), .fns = lst(agree = ~if_else(. %in% agree_vals, 1, 0))))
+
+cregg_plot(df_scalevars, 1, "subject_matter_expert_agree",
+           "Petition author is a subject matter expert...")
+cregg_plot(df_scalevars, 0, "subject_matter_expert_agree",
+           "Petition author is a subject matter expert...")
+
+cregg_plot(df_scalevars, 1, "author_committed_agree",
+           "Petition author is committed to the cause...")
+cregg_plot(df_scalevars, 0, "author_committed_agree",
+           "Petition author is committed to the cause...")
+
+cregg_plot(df_scalevars, 1, "persuade_undecided_agree",
+           "Petition could persuade someone undecided...")
+cregg_plot(df_scalevars, 0, "persuade_undecided_agree",
+           "Petition could persuade someone undecided...")
+
+cregg_plot(df_scalevars, 1, "motivate_reader_agree",
+           "Petition would motivate a reader...")
+cregg_plot(df_scalevars, 0, "motivate_reader_agree",
+           "Petition would motivate a reader...")
+
 ```
 ```{r}
-model_logit <- glm(
-  selected_petition ~ long_petition + good_title, data = df %>% filter(AI_primed==1,
-                                                                       !is.na(selected_petition)),
-  family = binomial(link = "logit")
-)
-
-mfx_logit <- model_logit %>% 
-  avg_slopes()
-
-mfx_logit
-```
-```{r}
-rhs_vars <- all.vars(stats::update(formula(model_logit), 0 ~ .))
-
-model_variable_levels <- tibble(
+logit_mfx_plot <- function(df, treatment_val=1, outcome_var, title=NA) {
+  df <- df %>% 
+    rename(outcome = outcome_var)
+  
+  model_logit <- glm(
+    outcome ~ long_petition + good_title, data = df %>% 
+      filter(AI_primed==treatment_val),
+    family = binomial(link = "logit")
+  ) 
+  
+  mfx_logit <- model_logit %>% 
+    avg_slopes()
+  
+  rhs_vars <- all.vars(stats::update(formula(model_logit), 0 ~ .))
+  
+  model_variable_levels <- tibble(
   variable = rhs_vars
 ) %>% 
   mutate(levels = map(variable, ~{
     x <- df[[.x]]
     if (is.numeric(x)) {
       as.character(unique(x))
-    } else if (is.factor(x)) {
-      levels(x)
+    } else if (variable=='long_petition') {
+      factor(x, levels=c(0,1),
+                                  labels=c('Short', 'Long'))
+    } else if (variable=='good_title') {
+      factor(x, levels=c(0,1),
+                                  labels=c('Bad', 'Good'))
     } else {
       sort(unique(x))
     }
   })) %>% 
   unnest(levels) %>% 
   mutate(term = paste0(variable, levels))
-
-label_pp <- label_number(accuracy = 1, scale = 100, 
+  
+  label_pp <- label_number(accuracy = 1, scale = 100, 
                          suffix = " pp.", style_negative = "minus")
 
-label_amce <- label_number(accuracy = 0.1, scale = 100, suffix = " pp.", 
-                           style_negative = "minus", style_positive = "plus")
-
-```
-```{r}
-model_results_logit_mfx <- mfx_logit %>%
+  label_amce <- label_number(accuracy = 0.1, scale = 100, suffix = " pp.", 
+                             style_negative = "minus", style_positive = "plus")
+  
+  model_results_logit_mfx <- mfx_logit %>%
   separate_wider_delim(
     contrast,
     delim = " - ", 
     names = c("variable_level", "reference_level")
   )
-
-variable_lookup <- tribble(
+  variable_lookup <- tribble(
   ~variable,    ~variable_nice,
   "good_title", "Good title",
   "long_petition", "Long petition",
@@ -378,15 +455,15 @@ plot_data_logit_mfx <- model_variable_levels %>%
     )
   ) %>% 
   left_join(variable_lookup, by = join_by(variable)) %>% 
-  mutate(across(c(levels, variable_nice), ~fct_inorder(.)))
+  mutate(across(c(levels, variable_nice), ~fct_inorder(.))) %>% 
+  mutate(levels_nice = case_when(variable=='long_petition' & levels==0 ~ 'Short',
+                                 variable=='long_petition' & levels==1 ~ 'Long',
+                                 variable=='good_title' & levels==0 ~ 'Bad',
+                                 variable=='good_title' & levels==1 ~ 'Good'))
 
-plot_data_logit_mfx
-```
-
-```{r}
-ggplot(
+plt <- ggplot(
   plot_data_logit_mfx,
-  aes(x = estimate, y = levels, color = variable_nice)
+  aes(x = estimate, y = levels_nice, color = variable_nice)
 ) +
   geom_vline(xintercept = 0) +
   geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
@@ -395,10 +472,92 @@ ggplot(
   labs(
     x = "Percentage point change in probability of petition selection",
     y = NULL,
-    title = "AMCEs from logistic regression marginal effects"
+    title = "AMCEs from logistic regression"
   ) +
-  facet_col(facets = "variable_nice", scales = "free", space = "free")
+  facet_col(facets = "variable_nice", scales = "free_y", space = "free") +
+  theme_minimal()
+
+if (!is.na(title)) {
+    plt <- plt +
+      labs(title = title)
+  }
+print(plt)
+ggsave(str_glue("amce_mfx_{treatment_val}_{outcome_var}.pdf"))
+}
+
+logit_mfx_plot(df, 1, "selected_petition")
+logit_mfx_plot(df, 0, "selected_petition")
 ```
+
+
+
+```{r}
+logit_mfx_plot(df_scalevars, 1, "subject_matter_expert_agree",
+           "Petition author is a subject matter expert...")
+logit_mfx_plot(df_scalevars, 0, "subject_matter_expert_agree",
+           "Petition author is a subject matter expert...")
+
+logit_mfx_plot(df_scalevars, 1, "author_committed_agree",
+           "Petition author is committed to the cause...")
+logit_mfx_plot(df_scalevars, 0, "author_committed_agree",
+           "Petition author is committed to the cause...")
+
+logit_mfx_plot(df_scalevars, 1, "persuade_undecided_agree",
+           "Petition could persuade someone undecided...")
+logit_mfx_plot(df_scalevars, 0, "persuade_undecided_agree",
+           "Petition could persuade someone undecided...")
+
+logit_mfx_plot(df_scalevars, 1, "motivate_reader_agree",
+           "Petition would motivate a reader...")
+logit_mfx_plot(df_scalevars, 0, "motivate_reader_agree",
+           "Petition would motivate a reader...")
+```
+
+```{r}
+df_other_outcomes <- df
+# df_other_outcomes$long_petition <- factor(df_other_outcomes$long_petition,
+#                            levels = c(0,1),
+#                            labels = c("Short", "Long"))
+# df_other_outcomes$good_title <- factor(df_other_outcomes$good_title,
+#                         levels = c(0,1),
+#                         labels = c("Bad","Good"))
+
+bar_chart_other_outcomes <- function(df) {
+  plt <- df %>% 
+    pivot_longer(c(long_petition, good_title), names_to="attribute_name", values_to="attribute_value") %>% 
+    pivot_longer(c(subject_matter_expert,author_committed, persuade_undecided,
+                    motivate_reader)) %>% 
+    mutate(value = factor(value, levels = c(disagree_vals, agree_vals), ordered=TRUE)) %>% 
+    mutate(name_nice = case_when(name == 'subject_matter_expert' ~ 'Author is a subject matter expert...',
+                                  name == 'author_committed' ~ 'Author is committed to the cause...',
+                                  name == 'persuade_undecided' ~ 'Petition can persuade an undecided reader...',
+                                  name == 'motivate_reader' ~ 'Petition can motivate a reader...')) %>%  
+    group_by(attribute_name, attribute_value, name_nice, value) %>% 
+    summarize(n = n()) %>% 
+    group_by(name_nice, attribute_name, attribute_value) %>% 
+    mutate(pct = 100*n/sum(n)) %>% 
+    ungroup() %>% 
+    mutate(attribute_name = if_else(attribute_name == 'good_title', 'Good title',
+                                    'Long petition'),
+           attribute_value = if_else(attribute_value == 1, 'Yes', 'No')) %>% 
+    ggplot(aes(name_nice, pct, fill=value)) +
+    geom_col(position="stack") +
+    theme_minimal() +
+    scale_fill_manual(values=cbPalette) +
+    facet_grid(attribute_name ~ attribute_value,
+               scales = "free_y", space = "free") +
+    labs(x = "Outcome",
+         y = "Percent",
+         fill="")  +
+    theme(axis.text.x = element_text(angle = -90, vjust = 0.5, hjust=1))
+    print(plt)
+  ggsave('other_outcomes.pdf', height=8, width=10)
+}
+
+bar_chart_other_outcomes(df_other_outcomes)
+```
+
+
 
 
 
