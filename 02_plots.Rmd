@@ -562,7 +562,7 @@ bar_chart_other_outcomes(df_other_outcomes)
 
 ```{r}
 mod_interaction <- glm(
-    selected_petition ~ long_petition:AI_primed + good_title:AI_primed + long_petition + good_title, data = df,
+    selected_petition ~ long_petition:AI_primed + good_title:AI_primed + long_petition + good_title + AI_primed, data = df,
     family = binomial(link = "logit")
   ) 
 
@@ -573,9 +573,11 @@ stargazer(mod_interaction, title='Fully interacted model',
           dep.var.labels=c("Selected petition"),
           covariate.labels=c("Long",
                              "Good title",
+                             "AI primed",
                              "Long x AI primed",
                              "Good title x AI primed"),
-          omit.stat=c("LL","ser","f"), ci=TRUE, ci.level=0.95, single.row=TRUE)
+          omit.stat=c("LL","ser","f"), ci=TRUE, ci.level=0.95, single.row=TRUE)  %>% 
+  cat()
 ```
 
 ```{r}
@@ -628,14 +630,14 @@ mms_plt <- mms_mfx %>%
     size = 3.5, show.legend = FALSE
   ) +
   scale_x_continuous(labels = label_percent()) +
-  scale_color_manual(values = cbPalette) +
+  scale_color_manual(values = cbPalette[c(2,3)]) +
   labs(
     x = "Marginal means",
     y = NULL,
     color = NULL,
     title = "Marginal means by AI priming"
   ) +
-  facet_wrap(vars("long_petition")) +
+  #facet_wrap(vars("AI_priming")) +
   theme(
     legend.position = "bottom",
     legend.justification = "left",
@@ -657,10 +659,10 @@ mms_mfx_diff_plt <- mms_mfx_diff %>%
   )) +
   geom_label(
     aes(label = estimate_nice), size = 3.5,
-    nudge_y = 0.3, color = cbPalette[1]
+    nudge_y = 0.3, color = 'black'
   ) +
   scale_x_continuous(labels = label_pp) +
-  scale_color_manual(values = cbPalette) +
+  scale_color_manual(values = 'black') +
   labs(
     x = "Difference in marginal means",
     y = "",
@@ -675,7 +677,7 @@ mms_mfx_diff_plt <- mms_mfx_diff %>%
   theme_minimal()
 
 mms_mfx_diff_plt
-ggsave("marginal_means_AIprimed.pdf")
+ggsave("marginal_means_diff_AIprimed.pdf")
 ```
 
 
